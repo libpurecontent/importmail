@@ -9,13 +9,12 @@ $pearLocation = '/usr/local/lib/php/';
 $includePathWithPear = "/path/to/libraries/:{$pearLocation}/:{$pearLocation}/Mail/";	// Make sure the Mail/ location is also included
 ini_set ('include_path', $includePathWithPear);
 require_once ('importMail.php');
-list ($subject, $body, $date) = importMail::main ($includePathWithPear);
-
+list ($subject, $date, $message, $attachments) = $importMail->main ($includePathWithPear);
 */
 
 
-# Class to read mail coming from Exim; see http://www.evolt.org/article/Incoming_Mail_and_PHP/18/27914/
-# Version 1.0.1
+# Class to read mail coming from Exim; see http://evolt.org/incoming_mail_and_php
+# Version 1.1.0
 class importMail
 {
 	# Constructor
@@ -51,49 +50,98 @@ class importMail
 		$structure = $decoder->decode ($params);
 		
 		# Convert from object to array format
-		$message = get_object_vars ($structure);
+		$email = get_object_vars ($structure);
 		
 		# Extract key headers
-		$dateOriginal = $message['headers']['date'];
-		$subject = $message['headers']['subject'];
+		$subject = $email['headers']['subject'];
 		
-		# Get the message body
-		if (isSet ($message['body'])) {
-			$messageBody = $message['body'];
+		# Convert the date to a UNIX timestamp
+		$date = strtotime ($email['headers']['date']);
+		
+		# Determine if the message is multipart MIME or not
+		$isMultipart = (isSet ($email['parts']));
+		
+		# For a standard text-only mail, get the message body
+		if (!$isMultipart) {
+			$message = $this->utf8Message ($email);
+			$attachments = array ();
 		} else {
-			foreach ($message['parts'] as $index => $part) {
-				$part = get_object_vars ($part);
-				if (substr_count ($part['headers']['content-type'], 'text/plain')) {
-					$messageBody = $part['body'];
-					break;
-				} else if (substr_count ($part['headers']['content-type'], 'text/html')) {
-					
-					# Convert HTML to plain text
-					preg_match ('/charset="?([^\s]+)"?/i', $part['headers']['content-type'], $contentTypeMatches);
-					$contentType = $contentTypeMatches[1];
-					$messageBody = $part['body'];
-					$messageBody = iconv ($contentType, 'UTF-8', $messageBody);	// Convert to UTF-8
-					$messageBody = strip_tags ($messageBody);	// Convert to plain text
-					$messageBody = self::numeric_entities ($messageBody);
-					$messageBody = html_entity_decode ($messageBody, ENT_COMPAT, 'UTF-8');
-					break;
-				}
+			
+			# For multipart messages, parse into parts and extract the message and any attachments
+			list ($message, $attachments) = $this->parseMultipart ($email['parts']);
+		}
+		
+		# Return the values
+		return array ($subject, $date, $message, $attachments);
+	}
+	
+	
+	# Function to parse multipart messages, with support for nested (recursive) message parts
+	private function parseMultipart ($parts)
+	{
+		# Assume there are no attachments, to start with
+		$attachments = array ();
+		
+		# Parse each part
+		foreach ($parts as $index => $part) {
+			$part = get_object_vars ($part);
+			
+			# If this part has sub-parts (which mail clients show as 1.1, 1.2, etc.), recurse
+			if (isSet ($part['parts'])) {
+				list ($message, $partAttachments) = $this->parseMultipart ($part['parts']);
+				$attachments += $partAttachments;
+				continue;	// Skip to next part
+			}
+			
+			# Handle each content type differently
+			$contentType = "{$part['ctype_primary']}/{$part['ctype_secondary']}";
+			switch ($contentType) {
 				
-				# Format not known
-				return false;
+				# Plain text, which will be the default
+				case 'text/plain':
+					$message = $this->utf8Message ($part);
+					break;
+				
+				# HTML
+				case 'text/html':
+					if (isSet ($message)) {continue;}	// Skip if text/plain or a nested part has already found a message
+					$message = $this->utf8Message ($part);
+					$message = strip_tags ($message);	// Convert to plain text
+					$message = self::numeric_entities ($message);
+					$message = html_entity_decode ($message, ENT_COMPAT, 'UTF-8');
+					break;
+				
+				# Binaries
+				default:
+					$filename = $part['d_parameters']['filename'];
+					$binaryPayload = $part['body'];
+					$attachments[$filename] = $binaryPayload;
+					break;
 			}
 		}
 		
-		# Convert the date to a unix timestamp
-		$date = strtotime ($dateOriginal);
+		# Return the message and attachments
+		return array ($message, $attachments);
+	}
+	
+	
+	# UTF-8 message conversion
+	private function utf8Message ($container)
+	{
+		# Extract the string and charset (both messages and part are containers for the same structure)
+		$string  = $container['body'];
+		$charset = $container['ctype_parameters']['charset'];
 		
-		# Return the values
-		return array ($subject, $messageBody, $date);
+		# Do the conversion
+		$string = iconv ($charset, 'UTF-8//IGNORE', $string);
+		
+		# Return the contained string
+		return $string;
 	}
 	
 	
 	# Decode numeric entities; from www.php.net/html-entity-decode#96324
-	function numeric_entities ($string)
+	private function numeric_entities ($string)
 	{
 		$mapping_hex = array();
 		$mapping_dec = array();
@@ -107,5 +155,4 @@ class importMail
 		$string = str_replace(array_values($mapping_dec),array_keys($mapping_dec) , $string);
 		return $string;
 	}
-	
 }
