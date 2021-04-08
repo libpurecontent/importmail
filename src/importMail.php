@@ -5,35 +5,37 @@
 
 Example use, run in a shell context:
 
-$pearLocation = '/usr/local/lib/php/';
-$includePathWithPear = "/path/to/libraries/:{$pearLocation}/:{$pearLocation}/Mail/";	// Make sure the Mail/ location is also included
-ini_set ('include_path', $includePathWithPear);
+$pearLocation = '/usr/share/php/';
 require_once ('importMail.php');
-list ($subject, $date, $message, $attachments) = $importMail->main ($includePathWithPear);
+$importMail = new importMail ($pearLocation);
+list ($from, $subject, $date, $message, $attachments) = $importMail->main ($pearLocation);
 */
 
 
-# Class to read mail coming from Exim; see http://evolt.org/incoming_mail_and_php
-# Version 1.1.0
+# Class to read mail coming from Exim; see https://evolt.org/incoming_mail_and_php
+# Version 1.2.0
 class importMail
 {
 	# Constructor
-	function __construct ()
+	function __construct ($pearLocation = false)
 	{
-		// Do nothing
+		# Environment
+		ini_set ('date.timezone', 'Europe/London');		// Required for PHP 5.3+
+		
+		# Add the PEAR location (and library path within this) to the include path
+		if ($pearLocation) {
+			$includePathComponents = array (ini_get ('include_path'), $pearLocation, $pearLocation . '/Mail/');
+			ini_set ('include_path', implode (PATH_SEPARATOR, $includePathComponents));
+		}
+		
+		# Load required PEAR libraries
+		require_once ('mimeDecode.php');	// in $pearLocation
 	}
 	
 	
 	# Main function
-	public function main ($includePathWithPear)
+	public function main ()
 	{
-		# Environment
-		ini_set ('date.timezone', 'Europe/London');	// Required for PHP 5.3+
-		ini_set ('include_path', $includePathWithPear);
-		
-		# Load required PEAR libraries
-		require_once ('mimeDecode.php');	// in path/to/pear/Mail/
-		
 		# Read from stdin
 		$fd = fopen ('php://stdin', 'r');
 		$email = '';
@@ -53,6 +55,7 @@ class importMail
 		$email = get_object_vars ($structure);
 		
 		# Extract key headers
+		$from = $email['headers']['from'];
 		$subject = $email['headers']['subject'];
 		
 		# Convert the date to a UNIX timestamp
@@ -72,7 +75,7 @@ class importMail
 		}
 		
 		# Return the values
-		return array ($subject, $date, $message, $attachments);
+		return array ($from, $subject, $date, $message, $attachments);
 	}
 	
 	
@@ -104,7 +107,7 @@ class importMail
 				
 				# HTML
 				case 'text/html':
-					if (isSet ($message)) {continue;}	// Skip if text/plain or a nested part has already found a message
+					if (isSet ($message)) {continue 2;}	// Skip to next part if text/plain or a nested part has already found a message
 					$message = $this->utf8Message ($part);
 					$message = strip_tags ($message);	// Convert to plain text
 					$message = self::numeric_entities ($message);
