@@ -13,7 +13,7 @@ list ($from, $subject, $date, $message, $attachments) = $importMail->main ($pear
 
 
 # Class to read mail coming from Exim; see https://evolt.org/incoming_mail_and_php
-# Version 1.2.0
+# Version 1.2.1
 class importMail
 {
 	# Constructor
@@ -34,7 +34,7 @@ class importMail
 	
 	
 	# Main function
-	public function main ()
+	public function main ($simplifyFrom = false)
 	{
 		# Read from stdin
 		$fd = fopen ('php://stdin', 'r');
@@ -57,6 +57,13 @@ class importMail
 		# Extract key headers
 		$from = $email['headers']['from'];
 		$subject = $email['headers']['subject'];
+		
+		# If simplifying From, extract the e-mail part from the form "Name <email@example.com>"
+		if ($simplifyFrom) {
+			if (preg_match ('/^.*<([^>]+)>$/', trim ($from), $matches)) {
+				$from = $matches[1];
+			}
+		}
 		
 		# Convert the date to a UNIX timestamp
 		$date = strtotime ($email['headers']['date']);
@@ -97,23 +104,24 @@ class importMail
 			}
 			
 			# Handle each content type differently
-			$contentType = "{$part['ctype_primary']}/{$part['ctype_secondary']}";
+			$contentType = strtolower ("{$part['ctype_primary']}/{$part['ctype_secondary']}");		// strtolower necessary, as sometimes may be shown as TEXT/PLAIN
 			switch ($contentType) {
 				
 				# Plain text, which will be the default
 				case 'text/plain':
 					$message = $this->utf8Message ($part);
 					break;
-				
+					
 				# HTML
 				case 'text/html':
+					#!# Presumably this could cause valid HTML attachment to be skipped
 					if (isSet ($message)) {continue 2;}	// Skip to next part if text/plain or a nested part has already found a message
 					$message = $this->utf8Message ($part);
 					$message = strip_tags ($message);	// Convert to plain text
 					$message = self::numeric_entities ($message);
 					$message = html_entity_decode ($message, ENT_COMPAT, 'UTF-8');
 					break;
-				
+					
 				# Binaries
 				default:
 					$filename = $part['d_parameters']['filename'];
