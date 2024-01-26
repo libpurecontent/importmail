@@ -2,34 +2,21 @@
 
 
 /*
+	# Example use, run in a shell context:
 
-Example use, run in a shell context:
-
-$pearLocation = '/usr/share/php/';
-require_once ('importMail.php');
-$importMail = new importMail ($pearLocation);
-list ($from, $subject, $date, $message, $attachments) = $importMail->main ($pearLocation);
+	$importMail = new importMail ();
+	list ($from, $subject, $date, $message, $attachments) = $importMail->main ();
 */
 
 
 # Class to read mail coming from Exim; see https://evolt.org/incoming_mail_and_php
-# Version 1.2.1
 class importMail
 {
 	# Constructor
-	function __construct ($pearLocation = false)
+	function __construct ()
 	{
 		# Environment
 		ini_set ('date.timezone', 'Europe/London');		// Required for PHP 5.3+
-		
-		# Add the PEAR location (and library path within this) to the include path
-		if ($pearLocation) {
-			$includePathComponents = array (ini_get ('include_path'), $pearLocation, $pearLocation . '/Mail/');
-			ini_set ('include_path', implode (PATH_SEPARATOR, $includePathComponents));
-		}
-		
-		# Load required PEAR libraries
-		require_once ('mimeDecode.php');	// in $pearLocation
 	}
 	
 	

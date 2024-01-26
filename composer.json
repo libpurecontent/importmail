@@ -9,7 +9,10 @@
             "name": "mvl22"
         }
     ],
-    "require": {},
+    "require": {
+        "pear/mail_mime-decode": "1.5.5.2",
+        "pear/pear-core-minimal": "^1.10"
+    },
     "autoload": {
         "psr-0": {"importMail": "src/"}
     }
